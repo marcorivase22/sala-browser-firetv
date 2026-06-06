@@ -248,7 +248,14 @@ public final class MainActivity extends Activity {
     }
 
     private void moveCursor(int keyCode, int repeatCount) {
-        float step = dp(repeatCount > 3 ? 48 : 28);
+        float step;
+        if (repeatCount > 8) {
+            step = dp(32);
+        } else if (repeatCount > 3) {
+            step = dp(22);
+        } else {
+            step = dp(14);
+        }
         float edge = dp(18);
         float maxX = Math.max(edge, root.getWidth() - edge);
         float maxY = Math.max(edge, root.getHeight() - edge);

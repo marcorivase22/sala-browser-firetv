@@ -20,6 +20,7 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 
 - El cursor rojo aparece desde que inicia la aplicación.
 - Usa las flechas del control para moverlo.
+- Cada pulsación mueve el cursor en pasos finos para seleccionar controles pequeños.
 - Pulsa el botón central/OK para hacer clic.
 - Mantén una flecha para moverlo más rápido.
 - Al llegar arriba o abajo, la página se desplaza automáticamente.
