@@ -1,6 +1,7 @@
 package org.salabrowser.app;
 
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
@@ -43,7 +44,7 @@ public final class MainActivity extends Activity {
     private HistoryStore historyStore;
     private final RequestBlocker requestBlocker = new RequestBlocker();
     private String homeHost;
-    private boolean cursorEnabled;
+    private boolean cursorEnabled = true;
     private float cursorX;
     private float cursorY;
 
@@ -60,6 +61,7 @@ public final class MainActivity extends Activity {
         } else {
             webView.restoreState(savedInstanceState);
         }
+        root.post(() -> setCursorEnabled(true));
     }
 
     private void buildInterface() {
@@ -90,9 +92,9 @@ public final class MainActivity extends Activity {
         }));
 
         TextView title = new TextView(this);
-        title.setText("SALA");
+        title.setText("Desarrollado MRIVAS · v" + getVersionName() + " · SALA");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(18);
+        title.setTextSize(13);
         title.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -105,17 +107,11 @@ public final class MainActivity extends Activity {
         webView.setBackgroundColor(Color.rgb(8, 10, 15));
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
+        webView.setOnKeyListener((view, keyCode, event) -> handleRemoteKey(keyCode, event));
 
         webContainer = new FrameLayout(this);
         webContainer.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        cursorView = new View(this);
-        cursorView.setBackground(createCursorDrawable());
-        cursorView.setElevation(dp(12));
-        cursorView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(dp(30), dp(30));
-        webContainer.addView(cursorView, cursorParams);
 
         shell.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -131,7 +127,23 @@ public final class MainActivity extends Activity {
         root.addView(shell);
         root.addView(fullscreenContainer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        cursorView = new View(this);
+        cursorView.setBackground(createCursorDrawable());
+        cursorView.setElevation(dp(100));
+        cursorView.setClickable(false);
+        cursorView.setFocusable(false);
+        FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(dp(34), dp(34));
+        root.addView(cursorView, cursorParams);
         setContentView(root);
+    }
+
+    private String getVersionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return "?";
+        }
     }
 
     private Button toolbarButton(String label, View.OnClickListener listener) {
@@ -141,6 +153,7 @@ public final class MainActivity extends Activity {
         button.setAllCaps(false);
         button.setTextSize(14);
         button.setFocusable(true);
+        button.setOnKeyListener((view, keyCode, event) -> handleRemoteKey(keyCode, event));
         button.setOnClickListener(listener);
         button.setBackgroundColor(Color.TRANSPARENT);
         button.setPadding(dp(14), 0, dp(14), 0);
@@ -176,7 +189,6 @@ public final class MainActivity extends Activity {
     }
 
     private void showLibrary() {
-        setCursorEnabled(false);
         List<WatchEntry> entries = historyStore.all();
         StringBuilder html = new StringBuilder();
         html.append("<!doctype html><html><head><meta name='viewport' content='width=device-width'>")
@@ -224,11 +236,10 @@ public final class MainActivity extends Activity {
         }
         cursorView.setVisibility(enabled ? View.VISIBLE : View.GONE);
         if (enabled) {
-            webView.requestFocus();
-            webContainer.post(() -> {
+            root.post(() -> {
                 if (cursorX == 0 && cursorY == 0) {
-                    cursorX = webContainer.getWidth() / 2f;
-                    cursorY = webContainer.getHeight() / 2f;
+                    cursorX = root.getWidth() / 2f;
+                    cursorY = root.getHeight() / 2f;
                 }
                 updateCursorPosition();
             });
@@ -239,21 +250,23 @@ public final class MainActivity extends Activity {
     private void moveCursor(int keyCode, int repeatCount) {
         float step = dp(repeatCount > 3 ? 48 : 28);
         float edge = dp(18);
-        float maxX = Math.max(edge, webContainer.getWidth() - edge);
-        float maxY = Math.max(edge, webContainer.getHeight() - edge);
+        float maxX = Math.max(edge, root.getWidth() - edge);
+        float maxY = Math.max(edge, root.getHeight() - edge);
+        float webTop = webContainer.getY();
+        float webBottom = webTop + webContainer.getHeight();
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             cursorX -= step;
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             cursorX += step;
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (cursorY <= edge + step) {
+            if (repeatCount > 0 && cursorY >= webTop && cursorY <= webTop + edge + step) {
                 webView.scrollBy(0, -dp(180));
             } else {
                 cursorY -= step;
             }
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-            if (cursorY >= maxY - step) {
+            if (repeatCount > 0 && cursorY <= webBottom && cursorY >= webBottom - edge - step) {
                 webView.scrollBy(0, dp(180));
             } else {
                 cursorY += step;
@@ -275,8 +288,10 @@ public final class MainActivity extends Activity {
         long now = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cursorX, cursorY, 0);
         MotionEvent up = MotionEvent.obtain(now, now + 80, MotionEvent.ACTION_UP, cursorX, cursorY, 0);
-        webView.dispatchTouchEvent(down);
-        webView.dispatchTouchEvent(up);
+        cursorView.setVisibility(View.INVISIBLE);
+        super.dispatchTouchEvent(down);
+        super.dispatchTouchEvent(up);
+        cursorView.setVisibility(View.VISIBLE);
         down.recycle();
         up.recycle();
         cursorView.animate().scaleX(0.72f).scaleY(0.72f).setDuration(70)
@@ -326,35 +341,45 @@ public final class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (cursorEnabled && fullscreenView == null) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                    || keyCode == KeyEvent.KEYCODE_DPAD_UP
-                    || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    moveCursor(keyCode, event.getRepeatCount());
-                }
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                    || keyCode == KeyEvent.KEYCODE_ENTER
-                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-                if (event.getAction() == KeyEvent.ACTION_UP) {
-                    clickCursor();
-                }
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_UP) {
-                setCursorEnabled(false);
-                return true;
-            }
+        if (handleRemoteKey(event.getKeyCode(), event)) {
+            return true;
         }
         if (event.getAction() == KeyEvent.ACTION_UP && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
             navigateBack();
             return true;
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean handleRemoteKey(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_UP) {
+            setCursorEnabled(!cursorEnabled);
+            return true;
+        }
+        if (!cursorEnabled || fullscreenView != null) {
+            return false;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                || keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                moveCursor(keyCode, event.getRepeatCount());
+            }
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER
+                || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                || keyCode == KeyEvent.KEYCODE_BUTTON_A
+                || keyCode == KeyEvent.KEYCODE_SPACE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                clickCursor();
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override

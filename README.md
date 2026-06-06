@@ -18,12 +18,13 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 
 ## Control en Fire TV
 
-- Abre `Sitio` para activar el cursor rojo.
+- El cursor rojo aparece desde que inicia la aplicación.
 - Usa las flechas del control para moverlo.
 - Pulsa el botón central/OK para hacer clic.
 - Mantén una flecha para moverlo más rápido.
 - Al llegar arriba o abajo, la página se desplaza automáticamente.
 - Usa `Cursor` en la barra para mostrarlo u ocultarlo.
+- La versión instalada aparece arriba a la derecha.
 
 ## Compilar
 
