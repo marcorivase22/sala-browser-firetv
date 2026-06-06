@@ -14,6 +14,16 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 - Reproducción HTML5 en pantalla completa.
 - Historial local de hasta 30 páginas, sin cuenta ni servidor.
 - Interfaz enfocable mediante control remoto.
+- Cursor virtual para Fire TV: flechas para mover y botón central para pulsar.
+
+## Control en Fire TV
+
+- Abre `Sitio` para activar el cursor rojo.
+- Usa las flechas del control para moverlo.
+- Pulsa el botón central/OK para hacer clic.
+- Mantén una flecha para moverlo más rápido.
+- Al llegar arriba o abajo, la página se desplaza automáticamente.
+- Usa `Cursor` en la barra para mostrarlo u ocultarlo.
 
 ## Compilar
 

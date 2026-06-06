@@ -5,8 +5,10 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -20,7 +22,6 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,6 +33,8 @@ public final class MainActivity extends Activity {
     private static final String EMPTY_RESPONSE = "";
 
     private WebView webView;
+    private FrameLayout webContainer;
+    private View cursorView;
     private ProgressBar progressBar;
     private FrameLayout root;
     private FrameLayout fullscreenContainer;
@@ -40,6 +43,9 @@ public final class MainActivity extends Activity {
     private HistoryStore historyStore;
     private final RequestBlocker requestBlocker = new RequestBlocker();
     private String homeHost;
+    private boolean cursorEnabled;
+    private float cursorX;
+    private float cursorY;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,9 +76,13 @@ public final class MainActivity extends Activity {
         toolbar.setBackgroundColor(Color.rgb(16, 19, 27));
 
         toolbar.addView(toolbarButton("Inicio", view -> showLibrary()));
-        toolbar.addView(toolbarButton("Sitio", view -> webView.loadUrl(getString(R.string.site_url))));
+        toolbar.addView(toolbarButton("Sitio", view -> {
+            webView.loadUrl(getString(R.string.site_url));
+            setCursorEnabled(true);
+        }));
         toolbar.addView(toolbarButton("Atrás", view -> navigateBack()));
         toolbar.addView(toolbarButton("Recargar", view -> webView.reload()));
+        toolbar.addView(toolbarButton("Cursor", view -> setCursorEnabled(!cursorEnabled)));
         toolbar.addView(toolbarButton("Borrar", view -> {
             historyStore.clear();
             showLibrary();
@@ -96,11 +106,22 @@ public final class MainActivity extends Activity {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
 
+        webContainer = new FrameLayout(this);
+        webContainer.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        cursorView = new View(this);
+        cursorView.setBackground(createCursorDrawable());
+        cursorView.setElevation(dp(12));
+        cursorView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(dp(30), dp(30));
+        webContainer.addView(cursorView, cursorParams);
+
         shell.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         shell.addView(progressBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
-        shell.addView(webView, new LinearLayout.LayoutParams(
+        shell.addView(webContainer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         fullscreenContainer = new FrameLayout(this);
@@ -126,6 +147,14 @@ public final class MainActivity extends Activity {
         return button;
     }
 
+    private android.graphics.drawable.Drawable createCursorDrawable() {
+        android.graphics.drawable.GradientDrawable outer = new android.graphics.drawable.GradientDrawable();
+        outer.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        outer.setColor(Color.argb(230, 229, 9, 20));
+        outer.setStroke(dp(3), Color.WHITE);
+        return outer;
+    }
+
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -147,6 +176,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showLibrary() {
+        setCursorEnabled(false);
         List<WatchEntry> entries = historyStore.all();
         StringBuilder html = new StringBuilder();
         html.append("<!doctype html><html><head><meta name='viewport' content='width=device-width'>")
@@ -185,6 +215,73 @@ public final class MainActivity extends Activity {
         } else {
             showLibrary();
         }
+    }
+
+    private void setCursorEnabled(boolean enabled) {
+        cursorEnabled = enabled;
+        if (cursorView == null) {
+            return;
+        }
+        cursorView.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        if (enabled) {
+            webView.requestFocus();
+            webContainer.post(() -> {
+                if (cursorX == 0 && cursorY == 0) {
+                    cursorX = webContainer.getWidth() / 2f;
+                    cursorY = webContainer.getHeight() / 2f;
+                }
+                updateCursorPosition();
+            });
+            Toast.makeText(this, "Cursor: flechas para mover, OK para pulsar", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void moveCursor(int keyCode, int repeatCount) {
+        float step = dp(repeatCount > 3 ? 48 : 28);
+        float edge = dp(18);
+        float maxX = Math.max(edge, webContainer.getWidth() - edge);
+        float maxY = Math.max(edge, webContainer.getHeight() - edge);
+
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            cursorX -= step;
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            cursorX += step;
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            if (cursorY <= edge + step) {
+                webView.scrollBy(0, -dp(180));
+            } else {
+                cursorY -= step;
+            }
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (cursorY >= maxY - step) {
+                webView.scrollBy(0, dp(180));
+            } else {
+                cursorY += step;
+            }
+        }
+
+        cursorX = Math.max(edge, Math.min(cursorX, maxX));
+        cursorY = Math.max(edge, Math.min(cursorY, maxY));
+        updateCursorPosition();
+    }
+
+    private void updateCursorPosition() {
+        cursorView.setX(cursorX - cursorView.getWidth() / 2f);
+        cursorView.setY(cursorY - cursorView.getHeight() / 2f);
+        cursorView.bringToFront();
+    }
+
+    private void clickCursor() {
+        long now = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cursorX, cursorY, 0);
+        MotionEvent up = MotionEvent.obtain(now, now + 80, MotionEvent.ACTION_UP, cursorX, cursorY, 0);
+        webView.dispatchTouchEvent(down);
+        webView.dispatchTouchEvent(up);
+        down.recycle();
+        up.recycle();
+        cursorView.animate().scaleX(0.72f).scaleY(0.72f).setDuration(70)
+                .withEndAction(() -> cursorView.animate().scaleX(1f).scaleY(1f).setDuration(90))
+                .start();
     }
 
     private boolean isAllowedMainFrame(Uri uri) {
@@ -229,6 +326,30 @@ public final class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (cursorEnabled && fullscreenView == null) {
+            int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_UP
+                    || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    moveCursor(keyCode, event.getRepeatCount());
+                }
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                    || keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    clickCursor();
+                }
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_UP) {
+                setCursorEnabled(false);
+                return true;
+            }
+        }
         if (event.getAction() == KeyEvent.ACTION_UP && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
             navigateBack();
             return true;
@@ -254,6 +375,7 @@ public final class MainActivity extends Activity {
             fullscreenCallback.onCustomViewHidden();
             fullscreenCallback = null;
         }
+        cursorView.setVisibility(cursorEnabled ? View.VISIBLE : View.GONE);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
     }
 
@@ -300,6 +422,10 @@ public final class MainActivity extends Activity {
                     "if(v.indexOf('window.open')>=0)e.removeAttribute('onclick')});})();",
                     null
             );
+            Uri uri = Uri.parse(url);
+            if (isAllowedMainFrame(uri) && uri.getPath() != null && !"/".equals(uri.getPath())) {
+                setCursorEnabled(true);
+            }
         }
     }
 
@@ -328,6 +454,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             fullscreenView = view;
+            cursorView.setVisibility(View.GONE);
             fullscreenCallback = callback;
             fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
