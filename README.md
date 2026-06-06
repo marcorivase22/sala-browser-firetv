@@ -26,6 +26,13 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 - Al llegar arriba o abajo, la página se desplaza automáticamente.
 - Usa `Cursor` en la barra para mostrarlo u ocultarlo.
 - La versión instalada aparece arriba a la derecha.
+- En reproducción, Play/Pause controla el video.
+- Avance rápido y retroceso mueven aproximadamente 10 segundos.
+
+## Seguir viendo
+
+Una película o episodio se añade después de acumular cinco minutos activos en
+su página. El tiempo se conserva localmente si sales y vuelves más tarde.
 
 ## Compilar
 

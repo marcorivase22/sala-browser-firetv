@@ -14,6 +14,7 @@ import java.util.List;
 final class HistoryStore {
     private static final String PREFS = "watch_history";
     private static final String KEY = "entries";
+    private static final String WATCH_TIME_PREFIX = "watch_time:";
     private static final int MAX_ENTRIES = 30;
 
     private final SharedPreferences preferences;
@@ -66,7 +67,17 @@ final class HistoryStore {
     }
 
     synchronized void clear() {
-        preferences.edit().remove(KEY).apply();
+        preferences.edit().clear().apply();
+    }
+
+    synchronized long addWatchTime(String url, long elapsedMs) {
+        if (url == null || url.isEmpty() || elapsedMs <= 0) {
+            return 0;
+        }
+        String key = WATCH_TIME_PREFIX + url;
+        long total = preferences.getLong(key, 0) + elapsedMs;
+        preferences.edit().putLong(key, total).apply();
+        return total;
     }
 
     private String cleanTitle(String title) {

@@ -1,11 +1,15 @@
 package org.salabrowser.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -32,6 +36,7 @@ import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String EMPTY_RESPONSE = "";
+    private static final long CONTINUE_WATCHING_MS = 5 * 60 * 1000L;
 
     private WebView webView;
     private FrameLayout webContainer;
@@ -47,6 +52,12 @@ public final class MainActivity extends Activity {
     private boolean cursorEnabled = true;
     private float cursorX;
     private float cursorY;
+    private final Handler watchHandler = new Handler(Looper.getMainLooper());
+    private String trackedUrl;
+    private String trackedTitle;
+    private long trackedSince;
+    private boolean trackedSaved;
+    private final Runnable watchCheckpoint = this::checkpointWatchTime;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -318,11 +329,46 @@ public final class MainActivity extends Activity {
     }
 
     private void rememberPage(String url, String title) {
+        stopTrackingPage();
         Uri uri = Uri.parse(url);
         String path = uri.getPath();
         if (isAllowedMainFrame(uri) && path != null && path.startsWith("/film/")) {
-            historyStore.save(url, title);
+            trackedUrl = url;
+            trackedTitle = title;
+            trackedSince = SystemClock.elapsedRealtime();
+            trackedSaved = false;
+            watchHandler.postDelayed(watchCheckpoint, 30_000L);
         }
+    }
+
+    private void checkpointWatchTime() {
+        if (trackedUrl == null || trackedSince == 0) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        long total = historyStore.addWatchTime(trackedUrl, now - trackedSince);
+        trackedSince = now;
+        if (!trackedSaved && total >= CONTINUE_WATCHING_MS) {
+            historyStore.save(trackedUrl, trackedTitle);
+            trackedSaved = true;
+            Toast.makeText(this, "Guardado en Seguir viendo", Toast.LENGTH_SHORT).show();
+        }
+        watchHandler.postDelayed(watchCheckpoint, 30_000L);
+    }
+
+    private void stopTrackingPage() {
+        watchHandler.removeCallbacks(watchCheckpoint);
+        if (trackedUrl != null && trackedSince != 0) {
+            long now = SystemClock.elapsedRealtime();
+            long total = historyStore.addWatchTime(trackedUrl, now - trackedSince);
+            if (!trackedSaved && total >= CONTINUE_WATCHING_MS) {
+                historyStore.save(trackedUrl, trackedTitle);
+            }
+        }
+        trackedUrl = null;
+        trackedTitle = null;
+        trackedSince = 0;
+        trackedSaved = false;
     }
 
     private String escape(String value) {
@@ -347,6 +393,29 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        stopTrackingPage();
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        String url = webView == null ? null : webView.getUrl();
+        if (url != null && trackedUrl == null) {
+            Uri uri = Uri.parse(url);
+            String path = uri.getPath();
+            if (isAllowedMainFrame(uri) && path != null && path.startsWith("/film/")) {
+                trackedUrl = url;
+                trackedTitle = webView.getTitle();
+                trackedSince = SystemClock.elapsedRealtime();
+                trackedSaved = false;
+                watchHandler.postDelayed(watchCheckpoint, 30_000L);
+            }
+        }
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (handleRemoteKey(event.getKeyCode(), event)) {
             return true;
@@ -359,6 +428,10 @@ public final class MainActivity extends Activity {
     }
 
     private boolean handleRemoteKey(int keyCode, KeyEvent event) {
+        if ((fullscreenView != null || (trackedUrl != null && isPhysicalMediaKey(keyCode)))
+                && handleMediaKey(keyCode, event)) {
+            return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_UP) {
             setCursorEnabled(!cursorEnabled);
             return true;
@@ -379,8 +452,7 @@ public final class MainActivity extends Activity {
                 || keyCode == KeyEvent.KEYCODE_ENTER
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
                 || keyCode == KeyEvent.KEYCODE_BUTTON_A
-                || keyCode == KeyEvent.KEYCODE_SPACE
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                || keyCode == KeyEvent.KEYCODE_SPACE) {
             if (event.getAction() == KeyEvent.ACTION_UP) {
                 clickCursor();
             }
@@ -389,8 +461,93 @@ public final class MainActivity extends Activity {
         return false;
     }
 
+    private boolean handleMediaKey(int keyCode, KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_UP) {
+            return isMediaControlKey(keyCode);
+        }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER) {
+            sendPlayerCommand("toggle");
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            sendPlayerCommand("forward");
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            sendPlayerCommand("rewind");
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isMediaControlKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
+    }
+
+    private boolean isPhysicalMediaKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+    }
+
+    private void sendPlayerCommand(String command) {
+        String script = "(function(){" +
+                "var v=document.querySelector('video');" +
+                "if(v){" +
+                "if('" + command + "'==='toggle'){v.paused?v.play():v.pause();}" +
+                "if('" + command + "'==='forward'){v.currentTime=Math.min(v.duration||1e9,v.currentTime+10);}" +
+                "if('" + command + "'==='rewind'){v.currentTime=Math.max(0,v.currentTime-10);}" +
+                "return true;}" +
+                "var k='" + ("forward".equals(command) ? "ArrowRight" : "rewind".equals(command) ? "ArrowLeft" : " ") + "';" +
+                "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:k,code:k,bubbles:true}));" +
+                "document.activeElement.dispatchEvent(new KeyboardEvent('keyup',{key:k,code:k,bubbles:true}));" +
+                "return false;})();";
+        webView.evaluateJavascript(script, null);
+
+        int forwardedKey = "forward".equals(command)
+                ? KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                : "rewind".equals(command)
+                ? KeyEvent.KEYCODE_MEDIA_REWIND
+                : KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, forwardedKey));
+            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, forwardedKey));
+        }
+        if (fullscreenView != null) {
+            fullscreenView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, forwardedKey));
+            fullscreenView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, forwardedKey));
+        }
+        String message = "forward".equals(command) ? "+10 segundos"
+                : "rewind".equals(command) ? "-10 segundos" : "Play / Pausa";
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
     @Override
     protected void onDestroy() {
+        stopTrackingPage();
         webView.stopLoading();
         webView.destroy();
         super.onDestroy();
