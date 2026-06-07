@@ -1,11 +1,9 @@
 package org.salabrowser.app;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -37,6 +35,7 @@ import java.util.Locale;
 public final class MainActivity extends Activity {
     private static final String EMPTY_RESPONSE = "";
     private static final long CONTINUE_WATCHING_MS = 5 * 60 * 1000L;
+    private static final long FULLSCREEN_CURSOR_TIMEOUT_MS = 10_000L;
 
     private WebView webView;
     private FrameLayout webContainer;
@@ -58,6 +57,11 @@ public final class MainActivity extends Activity {
     private long trackedSince;
     private boolean trackedSaved;
     private final Runnable watchCheckpoint = this::checkpointWatchTime;
+    private final Runnable hideFullscreenCursor = () -> {
+        if (fullscreenView != null) {
+            cursorView.setVisibility(View.GONE);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -259,6 +263,7 @@ public final class MainActivity extends Activity {
     }
 
     private void moveCursor(int keyCode, int repeatCount) {
+        showCursorForInteraction();
         float step;
         if (repeatCount > 8) {
             step = dp(32);
@@ -303,6 +308,7 @@ public final class MainActivity extends Activity {
     }
 
     private void clickCursor() {
+        showCursorForInteraction();
         long now = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cursorX, cursorY, 0);
         MotionEvent up = MotionEvent.obtain(now, now + 80, MotionEvent.ACTION_UP, cursorX, cursorY, 0);
@@ -428,7 +434,8 @@ public final class MainActivity extends Activity {
     }
 
     private boolean handleRemoteKey(int keyCode, KeyEvent event) {
-        if ((fullscreenView != null || (trackedUrl != null && isPhysicalMediaKey(keyCode)))
+        if (isPhysicalMediaKey(keyCode)
+                && (fullscreenView != null || trackedUrl != null)
                 && handleMediaKey(keyCode, event)) {
             return true;
         }
@@ -436,7 +443,7 @@ public final class MainActivity extends Activity {
             setCursorEnabled(!cursorEnabled);
             return true;
         }
-        if (!cursorEnabled || fullscreenView != null) {
+        if (!cursorEnabled) {
             return false;
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
@@ -467,21 +474,19 @@ public final class MainActivity extends Activity {
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
                 || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
-                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                || keyCode == KeyEvent.KEYCODE_ENTER) {
-            sendPlayerCommand("toggle");
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+            String command = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY ? "play"
+                    : keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ? "pause" : "toggle";
+            sendPlayerCommand(command);
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
-                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
-                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
             sendPlayerCommand("forward");
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
             sendPlayerCommand("rewind");
             return true;
         }
@@ -495,11 +500,7 @@ public final class MainActivity extends Activity {
                 || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
                 || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
                 || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
-                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                || keyCode == KeyEvent.KEYCODE_ENTER
-                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS;
     }
 
     private boolean isPhysicalMediaKey(int keyCode) {
@@ -517,6 +518,8 @@ public final class MainActivity extends Activity {
                 "var v=document.querySelector('video');" +
                 "if(v){" +
                 "if('" + command + "'==='toggle'){v.paused?v.play():v.pause();}" +
+                "if('" + command + "'==='play'){v.play();}" +
+                "if('" + command + "'==='pause'){v.pause();}" +
                 "if('" + command + "'==='forward'){v.currentTime=Math.min(v.duration||1e9,v.currentTime+10);}" +
                 "if('" + command + "'==='rewind'){v.currentTime=Math.max(0,v.currentTime-10);}" +
                 "return true;}" +
@@ -530,19 +533,32 @@ public final class MainActivity extends Activity {
                 ? KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
                 : "rewind".equals(command)
                 ? KeyEvent.KEYCODE_MEDIA_REWIND
+                : "play".equals(command)
+                ? KeyEvent.KEYCODE_MEDIA_PLAY
+                : "pause".equals(command)
+                ? KeyEvent.KEYCODE_MEDIA_PAUSE
                 : KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (audioManager != null) {
-            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, forwardedKey));
-            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, forwardedKey));
-        }
         if (fullscreenView != null) {
             fullscreenView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, forwardedKey));
             fullscreenView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, forwardedKey));
         }
         String message = "forward".equals(command) ? "+10 segundos"
-                : "rewind".equals(command) ? "-10 segundos" : "Play / Pausa";
+                : "rewind".equals(command) ? "-10 segundos"
+                : "play".equals(command) ? "Play"
+                : "pause".equals(command) ? "Pausa" : "Play / Pausa";
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void showCursorForInteraction() {
+        if (!cursorEnabled) {
+            return;
+        }
+        cursorView.setVisibility(View.VISIBLE);
+        cursorView.bringToFront();
+        watchHandler.removeCallbacks(hideFullscreenCursor);
+        if (fullscreenView != null) {
+            watchHandler.postDelayed(hideFullscreenCursor, FULLSCREEN_CURSOR_TIMEOUT_MS);
+        }
     }
 
     @Override
@@ -560,6 +576,7 @@ public final class MainActivity extends Activity {
         fullscreenContainer.removeView(fullscreenView);
         fullscreenContainer.setVisibility(View.GONE);
         fullscreenView = null;
+        watchHandler.removeCallbacks(hideFullscreenCursor);
         if (fullscreenCallback != null) {
             fullscreenCallback.onCustomViewHidden();
             fullscreenCallback = null;
@@ -643,13 +660,18 @@ public final class MainActivity extends Activity {
                 return;
             }
             fullscreenView = view;
-            cursorView.setVisibility(View.GONE);
             fullscreenCallback = callback;
             fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
             ));
             fullscreenContainer.setVisibility(View.VISIBLE);
+            showCursorForInteraction();
+            watchHandler.postDelayed(() -> {
+                if (fullscreenView != null) {
+                    sendPlayerCommand("play");
+                }
+            }, 350L);
             getWindow().getDecorView().setSystemUiVisibility(
                     View.SYSTEM_UI_FLAG_FULLSCREEN
                             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
