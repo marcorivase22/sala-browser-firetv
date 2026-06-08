@@ -7,7 +7,9 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 
 ## Funciones actuales
 
-- Android móvil, Android TV y Fire TV desde un solo APK.
+- Android móvil, Android TV y Fire TV desde un solo proyecto.
+- APK separado para teléfono, con controles táctiles y orientación automática.
+- APK separado para TV, con cursor virtual y control remoto.
 - Popups y descargas bloqueados.
 - Navegación de la ventana principal limitada al dominio configurado.
 - Filtro local y ampliable de hosts publicitarios.
@@ -42,13 +44,14 @@ su página. El tiempo se conserva localmente si sales y vuelves más tarde.
 El entorno local ya tiene JDK 17, Android SDK 35 y Gradle Wrapper 8.9.
 
 ```sh
-./gradlew assembleDebug
+./gradlew assembleTvRelease assembleMobileRelease
 ```
 
-El APK se genera en:
+Los APK se generan en:
 
 ```text
-app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/tv/release/app-tv-release.apk
+app/build/outputs/apk/mobile/release/app-mobile-release.apk
 ```
 
 También puedes abrir esta carpeta en Android Studio y ejecutar el proyecto desde
@@ -58,8 +61,11 @@ Para Fire TV, instala el APK mediante ADB:
 
 ```sh
 adb connect IP_DEL_FIRE_TV
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/tv/release/app-tv-release.apk
 ```
+
+La variante móvil usa el paquete `org.salabrowser.app.mobile`, por lo que puede
+instalarse junto a la edición de TV sin reemplazarla.
 
 ## Configuración
 

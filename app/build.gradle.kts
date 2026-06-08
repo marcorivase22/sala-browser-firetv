@@ -14,6 +14,7 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "org.salabrowser.app"
     compileSdk = 35
+    flavorDimensions += "device"
 
     defaultConfig {
         applicationId = "org.salabrowser.app"
@@ -21,6 +22,17 @@ android {
         targetSdk = 35
         versionCode = 6
         versionName = "0.4.1"
+    }
+
+    productFlavors {
+        create("tv") {
+            dimension = "device"
+        }
+        create("mobile") {
+            dimension = "device"
+            applicationIdSuffix = ".mobile"
+            versionNameSuffix = "-mobile"
+        }
     }
 
     signingConfigs {

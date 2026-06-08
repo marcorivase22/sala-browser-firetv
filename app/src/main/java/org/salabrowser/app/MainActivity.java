@@ -48,7 +48,8 @@ public final class MainActivity extends Activity {
     private HistoryStore historyStore;
     private final RequestBlocker requestBlocker = new RequestBlocker();
     private String homeHost;
-    private boolean cursorEnabled = true;
+    private boolean tvMode;
+    private boolean cursorEnabled;
     private float cursorX;
     private float cursorY;
     private final Handler watchHandler = new Handler(Looper.getMainLooper());
@@ -66,6 +67,8 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        tvMode = getResources().getBoolean(R.bool.is_tv);
+        cursorEnabled = tvMode;
         historyStore = new HistoryStore(this);
         homeHost = Uri.parse(getString(R.string.site_url)).getHost();
         buildInterface();
@@ -76,7 +79,9 @@ public final class MainActivity extends Activity {
         } else {
             webView.restoreState(savedInstanceState);
         }
-        root.post(() -> setCursorEnabled(true));
+        if (tvMode) {
+            root.post(() -> setCursorEnabled(true));
+        }
     }
 
     private void buildInterface() {
@@ -91,6 +96,17 @@ public final class MainActivity extends Activity {
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbar.setPadding(dp(12), dp(8), dp(12), dp(8));
         toolbar.setBackgroundColor(Color.rgb(16, 19, 27));
+        if (!tvMode) {
+            toolbar.setOnApplyWindowInsetsListener((view, insets) -> {
+                view.setPadding(
+                        dp(12),
+                        dp(8) + insets.getSystemWindowInsetTop(),
+                        dp(12),
+                        dp(8)
+                );
+                return insets;
+            });
+        }
 
         toolbar.addView(toolbarButton("Inicio", view -> showLibrary()));
         toolbar.addView(toolbarButton("Sitio", view -> {
@@ -99,20 +115,24 @@ public final class MainActivity extends Activity {
         }));
         toolbar.addView(toolbarButton("Atrás", view -> navigateBack()));
         toolbar.addView(toolbarButton("Recargar", view -> webView.reload()));
-        toolbar.addView(toolbarButton("Cursor", view -> setCursorEnabled(!cursorEnabled)));
-        toolbar.addView(toolbarButton("Borrar", view -> {
-            historyStore.clear();
-            showLibrary();
-            Toast.makeText(this, "Historial eliminado", Toast.LENGTH_SHORT).show();
-        }));
+        if (tvMode) {
+            toolbar.addView(toolbarButton("Cursor", view -> setCursorEnabled(!cursorEnabled)));
+        }
+        if (tvMode) {
+            toolbar.addView(toolbarButton("Borrar", view -> {
+                historyStore.clear();
+                showLibrary();
+                Toast.makeText(this, "Historial eliminado", Toast.LENGTH_SHORT).show();
+            }));
 
-        TextView title = new TextView(this);
-        title.setText("Desarrollado MRIVAS · v" + getVersionName() + " · SALA");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(13);
-        title.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+            TextView title = new TextView(this);
+            title.setText("Desarrollado MRIVAS · v" + getVersionName() + " · SALA");
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(13);
+            title.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            title.setTypeface(null, android.graphics.Typeface.BOLD);
+            toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        }
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -148,6 +168,7 @@ public final class MainActivity extends Activity {
         cursorView.setElevation(dp(100));
         cursorView.setClickable(false);
         cursorView.setFocusable(false);
+        cursorView.setVisibility(tvMode ? View.VISIBLE : View.GONE);
         FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(dp(34), dp(34));
         root.addView(cursorView, cursorParams);
         setContentView(root);
@@ -245,6 +266,13 @@ public final class MainActivity extends Activity {
     }
 
     private void setCursorEnabled(boolean enabled) {
+        if (!tvMode) {
+            cursorEnabled = false;
+            if (cursorView != null) {
+                cursorView.setVisibility(View.GONE);
+            }
+            return;
+        }
         cursorEnabled = enabled;
         if (cursorView == null) {
             return;
@@ -629,7 +657,7 @@ public final class MainActivity extends Activity {
                     null
             );
             Uri uri = Uri.parse(url);
-            if (isAllowedMainFrame(uri) && uri.getPath() != null && !"/".equals(uri.getPath())) {
+            if (tvMode && isAllowedMainFrame(uri) && uri.getPath() != null && !"/".equals(uri.getPath())) {
                 setCursorEnabled(true);
             }
         }
