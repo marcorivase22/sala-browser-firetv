@@ -32,6 +32,7 @@ publicitarias conocidas y conserva localmente las páginas visitadas para
 - Avance rápido y retroceso mueven aproximadamente 10 segundos.
 - En pantalla completa las flechas siguen moviendo el cursor y OK hace clic.
 - Al entrar en pantalla completa se envía Play automáticamente.
+- La vista de video usa toda la pantalla, incluida el área reservada por la barra de navegación.
 - El cursor se oculta después de 10 segundos sin movimiento y reaparece al usar las flechas.
 
 ## Seguir viendo

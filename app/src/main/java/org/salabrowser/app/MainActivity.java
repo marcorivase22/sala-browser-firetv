@@ -14,6 +14,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -36,6 +37,13 @@ public final class MainActivity extends Activity {
     private static final String EMPTY_RESPONSE = "";
     private static final long CONTINUE_WATCHING_MS = 5 * 60 * 1000L;
     private static final long FULLSCREEN_CURSOR_TIMEOUT_MS = 10_000L;
+    private static final int IMMERSIVE_FLAGS =
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
 
     private WebView webView;
     private FrameLayout webContainer;
@@ -157,6 +165,7 @@ public final class MainActivity extends Activity {
 
         fullscreenContainer = new FrameLayout(this);
         fullscreenContainer.setBackgroundColor(Color.BLACK);
+        fullscreenContainer.setFitsSystemWindows(false);
         fullscreenContainer.setVisibility(View.GONE);
 
         root.addView(shell);
@@ -450,6 +459,14 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && fullscreenView != null) {
+            enterImmersiveMode();
+        }
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (handleRemoteKey(event.getKeyCode(), event)) {
             return true;
@@ -610,7 +627,16 @@ public final class MainActivity extends Activity {
             fullscreenCallback = null;
         }
         cursorView.setVisibility(cursorEnabled ? View.VISIBLE : View.GONE);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+    }
+
+    private void enterImmersiveMode() {
+        getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
+        );
+        getWindow().getDecorView().setSystemUiVisibility(IMMERSIVE_FLAGS);
     }
 
     private final class GuardedWebViewClient extends WebViewClient {
@@ -687,24 +713,37 @@ public final class MainActivity extends Activity {
                 callback.onCustomViewHidden();
                 return;
             }
+            enterImmersiveMode();
             fullscreenView = view;
             fullscreenCallback = callback;
-            fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
+            view.setSystemUiVisibility(IMMERSIVE_FLAGS);
+            FrameLayout.LayoutParams fullscreenParams = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
-            ));
+            );
+            fullscreenParams.gravity = Gravity.FILL;
+            fullscreenContainer.addView(view, fullscreenParams);
             fullscreenContainer.setVisibility(View.VISIBLE);
+            fullscreenContainer.bringToFront();
+            cursorView.bringToFront();
+            fullscreenContainer.post(() -> {
+                if (fullscreenView == view) {
+                    view.setLayoutParams(new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            Gravity.FILL
+                    ));
+                    view.requestLayout();
+                    fullscreenContainer.requestLayout();
+                    enterImmersiveMode();
+                }
+            });
             showCursorForInteraction();
             watchHandler.postDelayed(() -> {
                 if (fullscreenView != null) {
                     sendPlayerCommand("play");
                 }
             }, 350L);
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            );
         }
 
         @Override
